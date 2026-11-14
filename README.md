@@ -5,13 +5,14 @@
 ## Что уже работает
 
 - **Веб-панель:** создание компаний, загрузка TXT/MD/PDF, добавление текста с сайта, привязка Telegram-пользователя, задачи, аналитика с фильтром по компании, тренды, автопостинг по расписанию, недельный контент-календарь.
-- **Telegram-бот:** задача обычным языком → AI генерирует 2 текста + 2 изображения, в чате показывает 1 текст + 1 фото → кнопки «Другой текст», «Другое фото», «Ещё фото» → «Одобрить выбранное», «На доработку», «Отклонить». Постоянное меню внизу: «Новая задача», «Статистика», «Тренды», «Запланировано», «Календарь», «Помощь». Каждый менеджер видит только одну компанию — ту, которую назначил администратор; переключения компаний в боте нет.
+- **Telegram-бот:** задача обычным языком → AI генерирует 2 текста + 2 изображения, в чате показывает 1 текст + 1 фото → кнопки «Другой текст», «Другое фото», «Ещё фото» → «Одобрить выбранное», «На доработку», «Отклонить». Постоянное меню внизу: «Новая задача», «Статистика», «Тренды», «Запланировано», «Календарь», «Стиль», «Помощь». Каждый менеджер видит только одну компанию — ту, которую назначил администратор; переключения компаний в боте нет.
 - **Быстрые правки:** в карточке черновика кнопка «⚡ Быстрые правки» — короче, другой заголовок, добавить цифры, проще, экспертнее, усилить CTA. Каждая правка добавляет новый вариант текста, старые остаются доступны кнопкой «Другой текст»; изображение не меняется.
 - **Контент-календарь:** на неделю вперёд, с датой, темой и получателем. В назначенное время планировщик сам создаёт черновик и присылает его на согласование.
 - **Approval gate:** без явного одобрения публикация невозможна; после правок снова требуется согласование.
 - **Реальная публикация** в Telegram-канал одним постом: фото + подпись с жирным заголовком, короткими абзацами, маркерами и хештегами. Длинный текст аккуратно подрезается под лимит подписи Telegram.
 - **Текст:** DeepSeek API (OpenAI-совместимый `/chat/completions`).
-- **Изображения:** anymodel GPT Image 2.5, `quality=low` по умолчанию. Заглушек нет: если изображение не сгенерировалось, задача завершается ошибкой и не публикуется.
+- **Изображения:** anymodel GPT Image 2.5, `quality=low` по умолчанию. Бот делает графические SMM-креативы в фирменных цветах: логотип, крупный заголовок, карточки, 3D-стекло. Фотографии людей не используются. Заглушек нет: если изображение не сгенерировалось, задача завершается ошибкой и не публикуется.
+- **Стиль заказчика:** `/style` или кнопка «📌 Стиль» — сохранить примеры постов (текст, фото с подписью, пересланное сообщение). Бот учитывает их тон, структуру и визуальный стиль в новых публикациях.
 - **SQLite:** компании, задачи, варианты, история диалога, привязки, публикации, реакции, расписания, просмотры и AI-выводы сохраняются после перезапуска. Файл — `data/app.db`.
 - **Автопостинг:** расписание на компанию (интервал, тема, получатель) само создаёт черновик и присылает варианты на согласование. Публикация — только после одобрения.
 - **Отложенная публикация:** в карточке согласования можно выбрать «сейчас», «+1 час», «+3 часа», «завтра в 10:00» или ввести своё время вручную (`15.11 18:30`, `15.11.2026 18:30`, `через 2 часа`); пост публикуется планировщиком.
@@ -50,21 +51,24 @@ Analytics (просмотры/AI)   ─┘
 
 ### 1. Зависимости
 
+Нужен Python 3.12.
+
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 ```
+
+Либо просто запустите `.\run.ps1`: он сам создаст `.venv` и установит зависимости.
 
 ### 2. Настройки
 
 ```powershell
-.\scripts\configure.ps1
+Copy-Item .env.example .env
 ```
 
-Скрипт спросит:
-- DeepSeek base URL, модель и API key;
-- anymodel base URL, модель `gpt-image-2.5`, качество `low` и API key;
-- Telegram-канал, ваш user ID и пароль панели.
+Заполните в `.env`:
+- DeepSeek/anymodel base URL, модель и API keys;
+- Telegram-токен, канал, ваш user ID и пароль панели.
 
 Секреты сохраняются только в `.env`, файл в `.gitignore`.
 
@@ -99,11 +103,7 @@ ANYMODEL_IMAGE_QUALITY=low
 4. Укажите канал в `TELEGRAM_CHANNEL_ID` или в карточке компании.
 5. Если `api.telegram.org` не открывается напрямую, укажите `TELEGRAM_PROXY`.
 
-Проверка:
-
-```powershell
-.\.venv\Scripts\python scripts\check_telegram.py
-```
+Проверка: после запуска отправьте боту `/start` — он должен ответить и показать меню.
 
 ### 4. Запуск
 
@@ -114,12 +114,13 @@ ANYMODEL_IMAGE_QUALITY=low
 Панель: http://127.0.0.1:8000
 Пароль: `ADMIN_PASSWORD` из `.env`.
 
-Проверки API:
+Проверка состояния:
 
 ```powershell
-.\.venv\Scripts\python scripts\check_deepseek.py
-.\.venv\Scripts\python scripts\check_image.py
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
+
+В ответе должно быть `ok=true`, `generator_started=true`, `image_configured=true`, `bot_started=true`.
 
 ## Демонстрация
 
@@ -147,13 +148,12 @@ ANYMODEL_IMAGE_QUALITY=low
 ## Про AI-генерацию: честно
 
 - Текст: DeepSeek API. Промпт включает факты о компании, историю, реакции на прошлые посты и свежие тренды. Оформление — Telegram HTML: жирный заголовок, короткие абзацы, 3–5 маркеров, вопрос к аудитории и хештеги. Объём 600–850 знаков; подпись подрезается до 1000, чтобы пост был одним сообщением.
-- Изображения: anymodel GPT Image 2.5 по английскому промпту, который DeepSeek возвращает вместе с публикацией. Нужен рабочий ключ anymodel в `ANYMODEL_API_KEY`.
+- Изображения: anymodel GPT Image 2.5 по английскому промпту, который DeepSeek возвращает вместе с публикацией. Бот делает графический SMM-креатив: логотип, крупный заголовок, подзаголовок, карточки и 3D-стекло; фотографии людей не используются. Нужен рабочий ключ anymodel в `ANYMODEL_API_KEY`.
 - Если изображение не сгенерировалось, бот сообщает ошибку, задача не переходит к публикации, заглушки не используются.
-- ChatGPT-браузер: реализован в `app/chatgpt_web.py`, но в текущем запуске не используется. Его можно вернуть как альтернативный провайдер.
 
 ## Хранение данных
 
-- `data/app.db` — SQLite (WAL). Таблицы: `companies`, `tasks`, `variants`, `history`, `user_company`, `publications`, `reaction_state`, `reaction_counts`, `trend_sources`, `trend_posts`, `trend_insights`, `schedules`, `post_metrics`, `channel_posts`, `analytics_insights`.
+- `data/app.db` — SQLite (WAL). Таблицы: `companies`, `tasks`, `variants`, `history`, `user_company`, `publications`, `reaction_state`, `reaction_counts`, `trend_sources`, `trend_posts`, `trend_insights`, `schedules`, `post_metrics`, `channel_posts`, `analytics_insights`, `style_examples`.
 - После перезапуска сохраняются компании, задачи, варианты, выбранные варианты, история, привязки, публикации, реакции, тренды, расписания, просмотры и AI-выводы.
 - Задачи в статусе `drafting` при старте помечаются ошибкой с кнопкой «Повторить».
 - Задачи в статусе `publishing` при старте помечаются ошибкой «проверьте канал»: пост мог уйти до сбоя.
@@ -189,32 +189,17 @@ ANYMODEL_IMAGE_QUALITY=low
 4. Вторая и последующие компании в одном демо-сценарии.
 5. VK и MAX: адаптеры публикации и статистики.
 6. Полноценный аудит, роли, журнал согласований и отзыв доступов.
-7. Резервный image-провайдер и фирменный шаблон с логотипом клиента.
+7. Резервный image-провайдер и расширенные шаблоны под разные рубрики.
 8. Отчёты по заявкам и продажам, а не только по просмотрам и реакциям.
 9. Docker/Windows-сервис и автозапуск после перезагрузки.
 
-## Проверки
+## Проверка запуска
 
 ```powershell
-.\.venv\Scripts\python -m compileall -q app scripts tests
-.\.venv\Scripts\python -m unittest discover -s tests -v
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-Дополнительные проверки:
-
-```powershell
-.\.venv\Scripts\python scripts\check_telegram.py
-.\.venv\Scripts\python scripts\check_deepseek.py
-.\.venv\Scripts\python scripts\check_image.py
-.\.venv\Scripts\python scripts\test_variant_callbacks.py
-.\.venv\Scripts\python scripts\test_compact_ui.py
-.\.venv\Scripts\python scripts\test_publish_single.py
-.\.venv\Scripts\python scripts\test_approval_flow.py
-.\.venv\Scripts\python scripts\test_reactions.py
-.\.venv\Scripts\python scripts\test_new_features.py
-.\.venv\Scripts\python scripts\test_menu_stats.py
-.\.venv\Scripts\python scripts\test_calendar_quick_edit.py
-```
+В ответе должно быть `ok=true`, `generator_started=true`, `image_configured=true`, `bot_started=true`.
 
 ## Структура
 
@@ -222,41 +207,24 @@ ANYMODEL_IMAGE_QUALITY=low
 app/
   admin.py            веб-панель, знания, аналитика, тренды
   analytics.py        просмотры из t.me/s и AI-вывод
+  config.py           настройки из .env
   db.py               SQLite-схема и подключение
-  generator.py        DeepSeek API + варианты текста и изображений
-  image_gen.py        anymodel GPT Image 2.5
-  scheduler.py        автопостинг и отложенная публикация
-  trends.py           парсер публичных каналов и AI-анализ
-  config.py           настройки
-  main.py             FastAPI + бот + планировщик + ежедневный отчёт
+  generator.py        DeepSeek + варианты текста и изображений
+  image_gen.py        anymodel GPT Image 2.5, брендированный SMM-креатив
+  main.py             FastAPI + Telegram-бот + планировщик
   models.py           модели
   prompts.py          промпты и парсинг
   runtime.py          общие синглтоны
+  scheduler.py        автопостинг, календарь, отложенная публикация
   store.py            SQLite-репозиторий
-  telegram_bot.py     сценарий Telegram и реакции
+  telegram_bot.py     Telegram: варианты, согласование, публикация
+  telegram_errors.py  обработка ошибок Telegram
+  time_parse.py       разбор пользовательского времени публикации
+  trends.py           анализ публичных каналов
+  static/             CSS и логотип
   templates/          HTML-шаблоны
-  static/             CSS
 data/
   companies.json      стартовые знания «Салаватстекло»
   app.db              SQLite (создаётся автоматически)
-scripts/
-  configure.ps1       интерактивная настройка .env
-  check_telegram.py   проверка бота и прав
-  check_deepseek.py   проверка DeepSeek
-  check_image.py      проверка anymodel GPT Image 2.5
-  test_variants.py    реальная генерация вариантов
-  test_variant_callbacks.py  проверка выбора вариантов
-  test_compact_ui.py         проверка компактного экрана с переключением
-  test_publish_single.py     проверка публикации одним постом
-  test_approval_flow.py      проверка approval-flow
-  test_reactions.py          проверка реакций
-  test_new_features.py       планировщик, метрики, AI-вывод
-  test_menu_stats.py         кнопки статистики и запланированных постов
-  test_calendar_quick_edit.py календарь и быстрые правки текста
-  test_schedule_auto.py      живой тест автопостинга
-  test_trends.py             проверка анализа трендов
-  test_text_format.py        проверка оформления текста
-  send_menu.py               отправка меню в Telegram при обновлении
-tests/
-  test_core.py        unit-тесты
+run.ps1               запуск приложения
 ```

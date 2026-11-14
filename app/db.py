@@ -186,6 +186,17 @@ CREATE TABLE IF NOT EXISTS calendar_entries (
     FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS style_examples (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'text',
+    text TEXT NOT NULL DEFAULT '',
+    image_path TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks(company_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_variants_task ON variants(task_id, batch_no, kind);
@@ -194,6 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_publications_message ON publications(chat_id, mes
 CREATE INDEX IF NOT EXISTS idx_trend_posts_channel ON trend_posts(channel, score);
 CREATE INDEX IF NOT EXISTS idx_channel_posts_company ON channel_posts(company_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_company ON calendar_entries(company_id, planned_at);
+CREATE INDEX IF NOT EXISTS idx_style_examples_company ON style_examples(company_id, created_at);
 """
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -225,6 +226,70 @@ class Store:
         if row:
             return self.get_company(row["company_id"])
         return None
+
+    # ------------------------------------------------------------ style examples
+    def add_style_example(
+        self,
+        company_id: str,
+        text: str = "",
+        kind: str = "text",
+        image_path: str = "",
+        source: str = "telegram",
+    ) -> str:
+        example_id = f"s-{secrets.token_hex(4)}"
+        stored_path = relative_path(image_path) if image_path else ""
+        self.db.execute(
+            """
+            INSERT INTO style_examples
+            (id, company_id, kind, text, image_path, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (example_id, company_id, kind, text, stored_path, source, _iso()),
+        )
+        return example_id
+
+    def list_style_examples(self, company_id: str, limit: int = 10) -> list[dict]:
+        rows = self.db.fetchall(
+            "SELECT * FROM style_examples WHERE company_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (company_id, limit),
+        )
+        return [dict(row) for row in rows]
+
+    def delete_style_example(self, example_id: str) -> bool:
+        cursor = self.db.execute(
+            "DELETE FROM style_examples WHERE id = ?", (example_id,)
+        )
+        return cursor.rowcount > 0
+
+    def style_examples_text(
+        self, company_id: str, limit: int = 4, max_chars: int = 1200
+    ) -> str:
+        examples = self.list_style_examples(company_id, limit=30)
+        guide = next(
+            (item for item in examples if item["kind"] == "guide" and item["text"]),
+            None,
+        )
+        texts = [
+            item
+            for item in examples
+            if item["kind"] in {"text", "image"} and item["text"]
+        ][:limit]
+        parts: list[str] = []
+        if guide:
+            parts.append("Стиль заказчика:\n" + guide["text"].strip())
+        if texts:
+            lines = [
+                "Примеры постов заказчика "
+                "(сохраняй тон, структуру, эмодзи и хештеги, но не копируй дословно):"
+            ]
+            for index, item in enumerate(texts, 1):
+                text = re.sub(r"\s+", " ", item["text"]).strip()
+                if len(text) > max_chars:
+                    text = text[:max_chars].rstrip() + "…"
+                lines.append(f"{index}. {text}")
+            parts.append("\n".join(lines))
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------ tasks
     def create_task(self, company_id: str, user_id: int, request: str) -> Task:

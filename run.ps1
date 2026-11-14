@@ -1,9 +1,21 @@
 ﻿$ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+$usePyLauncher = $false
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    & py -3.12 --version *> $null
+    if ($LASTEXITCODE -eq 0) {
+        $usePyLauncher = $true
+    }
+}
+
 if (-not (Test-Path ".venv")) {
     Write-Host "Создаю виртуальное окружение..." -ForegroundColor Cyan
-    python -m venv .venv
+    if ($usePyLauncher) {
+        & py -3.12 -m venv .venv
+    } else {
+        & python -m venv .venv
+    }
     .\.venv\Scripts\pip install -r requirements.txt
 }
 

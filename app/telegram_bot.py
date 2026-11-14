@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from aiogram import BaseMiddleware, Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -40,6 +42,7 @@ from app.prompts import (
     shorten_post,
 )
 from app.runtime import analytics_service, generator, store, trend_analyzer
+from app.telegram_errors import is_message_not_modified
 from app.time_parse import PublishTimeError, parse_custom_publish_time
 from app.trends import TrendError
 
@@ -79,6 +82,7 @@ BTN_STATS = "📊 Статистика"
 BTN_TRENDS = "🔥 Тренды"
 BTN_SCHEDULED = "🕒 Запланировано"
 BTN_CALENDAR = "🗓 Календарь"
+BTN_STYLE = "📌 Стиль"
 BTN_HELP = "❓ Помощь"
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
@@ -91,7 +95,8 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text=BTN_NEW), KeyboardButton(text=BTN_STATS)],
         [KeyboardButton(text=BTN_TRENDS), KeyboardButton(text=BTN_SCHEDULED)],
-        [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_HELP)],
+        [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_STYLE)],
+        [KeyboardButton(text=BTN_HELP)],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -104,6 +109,10 @@ class RevisionStates(StatesGroup):
 
 class PublishTimeStates(StatesGroup):
     waiting_custom = State()
+
+
+class StyleStates(StatesGroup):
+    waiting_example = State()
 
 
 def _channel(company: Company) -> str:
@@ -567,6 +576,7 @@ async def set_bot_commands(bot: Bot) -> None:
             BotCommand(command="stats", description="Реакции на публикации"),
             BotCommand(command="trends", description="Анализ популярных каналов"),
             BotCommand(command="calendar", description="Контент-календарь"),
+            BotCommand(command="style", description="Примеры стиля заказчика"),
             BotCommand(command="help", description="Как поставить задачу"),
             BotCommand(command="cancel", description="Отменить текущее действие"),
         ]
@@ -909,6 +919,7 @@ async def _generate_task_variants(
             feedback=_build_feedback_text(company.id),
             trends=_latest_trends_text(company.id),
             revision=revision,
+            style_examples=store.style_examples_text(company.id),
         )
         batch = store.next_batch(task.id)
         text_variants = [
@@ -1043,6 +1054,7 @@ async def cmd_help(message: Message) -> None:
         "• 📊 Статистика — просмотры и реакции, обновляются из канала;\n"
         "• 🔥 Тренды — разбор публичных каналов и идеи;\n"
         "• 🗓 Календарь — темы на ближайшую неделю;\n"
+        "• 📌 Стиль — сохранить примеры постов заказчика;\n"
         "• 🕒 Запланировано — отложенные публикации и отмена;\n"
         "• ✍️ Новая задача — начать новый пост.\n\n"
         "В карточке черновика есть «⚡ Быстрые правки»: короче, другой заголовок, "
@@ -1103,6 +1115,25 @@ async def cmd_calendar(message: Message) -> None:
     await _send_calendar(message)
 
 
+@router.message(Command("style"))
+async def cmd_style(message: Message, state: FSMContext) -> None:
+    if _access_denied(message.from_user.id):
+        await message.answer(NO_ACCESS_TEXT)
+        return
+    company = _user_company(message.from_user.id)
+    if company is None:
+        await message.answer(NO_ACCESS_TEXT)
+        return
+    examples = store.list_style_examples(company.id, limit=100)
+    await state.set_state(StyleStates.waiting_example)
+    await message.answer(
+        "Пришлите пример поста заказчика: текст, фото с подписью или пересланное сообщение.\n"
+        "Я сохраню его как образец стиля. Можно отправить несколько подряд.\n"
+        "Когда закончите — /cancel.\n\n"
+        f"Сохранено примеров: {len(examples)}."
+    )
+
+
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -1132,6 +1163,11 @@ async def menu_scheduled(message: Message, state: FSMContext) -> None:
 async def menu_calendar(message: Message, state: FSMContext) -> None:
     await state.clear()
     await _send_calendar(message)
+
+
+@router.message(F.text == BTN_STYLE)
+async def menu_style(message: Message, state: FSMContext) -> None:
+    await cmd_style(message, state)
 
 
 @router.message(F.text == BTN_HELP)
@@ -1168,8 +1204,12 @@ async def callback_stats(callback: CallbackQuery) -> None:
                 text, reply_markup=keyboard, link_preview_options=NO_PREVIEW
             )
             return
-        except Exception:  # noqa: BLE001
-            pass
+        except TelegramBadRequest as exc:
+            if is_message_not_modified(exc):
+                return
+            logger.warning("Не удалось обновить статистику: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось обновить статистику: %s", exc)
     await callback.bot.send_message(
         uid, text, reply_markup=keyboard, link_preview_options=NO_PREVIEW
     )
@@ -1321,7 +1361,12 @@ async def callback_quick_edit(callback: CallbackQuery, bot: Bot) -> None:
     except Exception:  # noqa: BLE001
         pass
     try:
-        draft = await generator.quick_edit(company, variant.content, instruction)
+        draft = await generator.quick_edit(
+            company,
+            variant.content,
+            instruction,
+            style_examples=store.style_examples_text(company.id),
+        )
         content = draft.full_text
         if action == "shorter":
             content = shorten_post(content, limit=650)
@@ -1435,10 +1480,60 @@ async def custom_publish_time(message: Message, state: FSMContext) -> None:
         await _refresh_compact_ui(message.bot, updated)
 
 
+@router.message(StyleStates.waiting_example)
+async def style_example_message(message: Message, state: FSMContext) -> None:
+    company = _user_company(message.from_user.id)
+    if company is None:
+        await state.clear()
+        await message.answer(NO_ACCESS_TEXT)
+        return
+
+    text = (message.text or message.caption or "").strip()
+    if message.photo:
+        photo = message.photo[-1]
+        target_dir = settings.images_dir / "style"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{company.id}-{secrets.token_hex(4)}.jpg"
+        try:
+            file = await message.bot.get_file(photo.file_id)
+            if not file.file_path:
+                raise RuntimeError("Telegram не вернул путь к фото")
+            await message.bot.download_file(file.file_path, destination=str(target))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Не удалось скачать пример стиля")
+            await message.answer(f"Не удалось скачать фото: {exc}")
+            return
+        store.add_style_example(
+            company.id,
+            text=text,
+            kind="image",
+            image_path=str(target),
+            source="telegram",
+        )
+        saved = "пример с фото"
+    elif text:
+        store.add_style_example(
+            company.id, text=text[:4000], kind="text", source="telegram"
+        )
+        saved = "текстовый пример"
+    else:
+        await message.answer("Пришлите текст, фото с подписью или пересланный пост.")
+        return
+
+    count = len(store.list_style_examples(company.id, limit=100))
+    await message.answer(
+        f"✅ Сохранён {saved}. Всего примеров: {count}.\n"
+        "Пришлите ещё или отправьте /cancel."
+    )
+
+
 # --------------------------------------------------------------------- free text
 @router.message(F.text)
 async def on_text(message: Message, state: FSMContext) -> None:
     current_state = await state.get_state()
+    if current_state == StyleStates.waiting_example.state:
+        await style_example_message(message, state)
+        return
     if current_state == PublishTimeStates.waiting_custom.state:
         await custom_publish_time(message, state)
         return

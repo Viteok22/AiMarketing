@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from app.prompts import (
     build_revision_prompt,
     parse_post_response,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DeepSeekError(RuntimeError):
@@ -132,15 +135,24 @@ class DeepSeekGenerator:
         feedback: str = "",
         trends: str = "",
         revision: tuple[str, str] | None = None,
+        style_examples: str = "",
     ) -> list[PostDraft]:
         hints = [
             "акцент на практической пользе, цифрах и инженерных решениях",
             "акцент на архитектурной выразительности и эмоции от проекта",
             "акцент на надёжности, опыте и экспертизе компании",
         ]
+        visual_hints = [
+            "графический SMM-коллаж: календарь или блокнот на столе, карточки с иконками, фирменные цвета, без людей",
+            "графический постер: ноутбук с дашбордом или стеклянная награда, 3D-стекло, карточки-шаги, без людей",
+            "графический городской коллаж: силуэт города, стеклянная лента, предметные макеты, без людей",
+        ]
 
         async def one(index: int) -> PostDraft:
-            hint = hints[index % len(hints)]
+            hint = (
+                f"{hints[index % len(hints)]}; "
+                f"визуальный акцент: {visual_hints[index % len(visual_hints)]}"
+            )
             if revision:
                 prompt = build_revision_prompt(
                     company,
@@ -149,6 +161,7 @@ class DeepSeekGenerator:
                     feedback=feedback,
                     trends=trends,
                     variant_hint=hint,
+                    style_examples=style_examples,
                 )
             else:
                 prompt = build_post_prompt(
@@ -158,6 +171,7 @@ class DeepSeekGenerator:
                     feedback=feedback,
                     trends=trends,
                     variant_hint=hint,
+                    style_examples=style_examples,
                 )
             raw = await asyncio.to_thread(
                 self._chat, prompt, 1400, 0.60 + index * 0.08
@@ -170,11 +184,47 @@ class DeepSeekGenerator:
         results = await asyncio.gather(
             *[one(index) for index in range(max(1, count))], return_exceptions=True
         )
-        drafts = [item for item in results if isinstance(item, PostDraft)]
-        errors = [str(item) for item in results if isinstance(item, Exception)]
+        drafts: list[PostDraft] = []
+        errors: list[str] = []
+        for index, item in enumerate(results):
+            if isinstance(item, PostDraft):
+                drafts.append(item)
+            else:
+                errors.append(str(item))
+                logger.warning("Вариант текста %s не сгенерирован: %s", index, item)
+
+        # Если параллельный проход не дал ничего (rate limit, пустой ответ),
+        # пробуем те же варианты ещё раз последовательно.
+        if not drafts:
+            logger.warning("Параллельная генерация не дала вариантов, повторяю последовательно")
+            for index in range(max(1, count)):
+                try:
+                    drafts.append(await one(index))
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(str(exc))
+                    logger.warning(
+                        "Последовательная генерация варианта %s не удалась: %s",
+                        index,
+                        exc,
+                    )
         if not drafts:
             raise DeepSeekError(errors[0] if errors else "DeepSeek не вернул варианты")
-        return drafts
+
+        # Параллельные запросы иногда упираются в rate limit. Добираем
+        # недостающие варианты последовательно, чтобы не терять выбор 2 из 2.
+        next_index = len(drafts)
+        for _ in range(max(1, count)):
+            if len(drafts) >= count:
+                break
+            try:
+                drafts.append(await one(next_index))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(str(exc))
+                logger.warning(
+                    "Повторная генерация варианта %s не удалась: %s", next_index, exc
+                )
+            next_index += 1
+        return drafts[:count]
 
     async def generate_image_variants(
         self,
@@ -184,9 +234,12 @@ class DeepSeekGenerator:
         prefix: str,
         count: int = 2,
     ) -> list[str]:
+        if not drafts:
+            raise ImageGenerationError("Нет текстовых вариантов для генерации изображения")
         images: list[str] = []
         last_error: Exception | None = None
-        for index, draft in enumerate(drafts[:count]):
+        for index in range(max(1, count)):
+            draft = drafts[index % len(drafts)]
             target = Path(image_dir) / f"{prefix}-{index + 1}.png"
             try:
                 saved = await asyncio.to_thread(
@@ -222,6 +275,7 @@ class DeepSeekGenerator:
         feedback: str = "",
         trends: str = "",
         revision: tuple[str, str] | None = None,
+        style_examples: str = "",
     ) -> tuple[list[PostDraft], list[str]]:
         drafts = await self.generate_text_variants(
             company,
@@ -231,6 +285,7 @@ class DeepSeekGenerator:
             feedback=feedback,
             trends=trends,
             revision=revision,
+            style_examples=style_examples,
         )
         images = await self.generate_image_variants(
             company,
@@ -285,10 +340,16 @@ class DeepSeekGenerator:
         return raw, str(saved)
 
     async def quick_edit(
-        self, company: Company, post_text: str, instruction: str
+        self,
+        company: Company,
+        post_text: str,
+        instruction: str,
+        style_examples: str = "",
     ) -> PostDraft:
         """Быстрая правка выбранного текста без перегенерации изображения."""
-        prompt = build_quick_edit_prompt(company, post_text, instruction)
+        prompt = build_quick_edit_prompt(
+            company, post_text, instruction, style_examples=style_examples
+        )
         raw = await asyncio.to_thread(self._chat, prompt, 1400, 0.55)
         draft = parse_post_response(raw)
         if len(draft.full_text) < 30:

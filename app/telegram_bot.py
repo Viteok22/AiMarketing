@@ -40,6 +40,7 @@ from app.prompts import (
     shorten_post,
 )
 from app.runtime import analytics_service, generator, store, trend_analyzer
+from app.time_parse import PublishTimeError, parse_custom_publish_time
 from app.trends import TrendError
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,10 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 
 class RevisionStates(StatesGroup):
     waiting_comment = State()
+
+
+class PublishTimeStates(StatesGroup):
+    waiting_custom = State()
 
 
 def _channel(company: Company) -> str:
@@ -1032,6 +1037,8 @@ async def cmd_help(message: Message) -> None:
         "2. Я пришлю 2 варианта текста и 2 изображения.\n"
         "3. Выберите кнопками «Текст 1/2» и «Фото 1/2» — можно смешивать.\n"
         "4. Нажмите «Одобрить выбранное» или «На доработку».\n\n"
+        "В карточке черновика нажмите «🕒 Время» — можно выбрать «сейчас», "
+        "«+1 час», «+3 часа», «завтра в 10:00» или ввести свою дату и время.\n\n"
         "Кнопки меню:\n"
         "• 📊 Статистика — просмотры и реакции, обновляются из канала;\n"
         "• 🔥 Тренды — разбор публичных каналов и идеи;\n"
@@ -1392,10 +1399,50 @@ async def revision_comment(message: Message, state: FSMContext) -> None:
     await _revise_task(message, company, task, comment)
 
 
+@router.message(PublishTimeStates.waiting_custom, F.text)
+async def custom_publish_time(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    task_id = data.get("custom_time_task_id")
+    task = store.get_task(task_id) if task_id else None
+    if task is None:
+        await state.clear()
+        await message.answer(
+            "Не нашёл задачу для планирования. Откройте черновик и нажмите «Время» ещё раз."
+        )
+        return
+    company = _user_company(message.from_user.id)
+    if (
+        task.user_id != message.from_user.id
+        or company is None
+        or task.company_id != company.id
+    ):
+        await state.clear()
+        await message.answer(NO_ACCESS_TEXT)
+        return
+    try:
+        scheduled = parse_custom_publish_time(message.text or "")
+    except PublishTimeError as exc:
+        await message.answer(f"{exc}\n\nВведите время ещё раз или отправьте /cancel.")
+        return
+    store.update_task(task.id, scheduled_at=scheduled)
+    await state.clear()
+    await message.answer(
+        f"✅ Время публикации: {scheduled.strftime('%d.%m %H:%M')}.\n"
+        "Когда будете готовы, нажмите кнопку планирования под черновиком."
+    )
+    updated = store.get_task(task.id)
+    if updated:
+        await _refresh_compact_ui(message.bot, updated)
+
+
 # --------------------------------------------------------------------- free text
 @router.message(F.text)
 async def on_text(message: Message, state: FSMContext) -> None:
-    if await state.get_state() == RevisionStates.waiting_comment.state:
+    current_state = await state.get_state()
+    if current_state == PublishTimeStates.waiting_custom.state:
+        await custom_publish_time(message, state)
+        return
+    if current_state == RevisionStates.waiting_comment.state:
         await revision_comment(message, state)
         return
     text = (message.text or "").strip()
@@ -1597,6 +1644,11 @@ async def callback_pubtime(callback: CallbackQuery, bot: Bot) -> None:
                 InlineKeyboardButton(
                     text="Завтра в 10:00", callback_data=f"pubset:{task.id}:tomorrow"
                 ),
+                InlineKeyboardButton(
+                    text="🕘 Своё время", callback_data=f"pubcustom:{task.id}"
+                ),
+            ],
+            [
                 InlineKeyboardButton(text="Отмена", callback_data=f"pubcancel:{task.id}"),
             ],
         ]
@@ -1605,6 +1657,40 @@ async def callback_pubtime(callback: CallbackQuery, bot: Bot) -> None:
         task.user_id,
         "Когда опубликовать пост?",
         reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pubcustom:"))
+async def callback_pubcustom(callback: CallbackQuery, state: FSMContext) -> None:
+    task_id = callback.data.split(":", 1)[1]
+    task = store.get_task(task_id)
+    if task is None:
+        await callback.answer("Задача не найдена", show_alert=True)
+        return
+    if task.status != "pending_approval":
+        await callback.answer(
+            f"Задача уже в статусе: {STATUS_LABELS.get(task.status, task.status)}",
+            show_alert=True,
+        )
+        return
+    await state.set_state(PublishTimeStates.waiting_custom)
+    await state.update_data(custom_time_task_id=task.id)
+    if callback.message:
+        try:
+            await callback.message.delete()
+        except Exception:  # noqa: BLE001
+            pass
+    await callback.bot.send_message(
+        callback.from_user.id,
+        "Введите дату и время публикации.\n\n"
+        "Примеры:\n"
+        "• 15.11 18:30\n"
+        "• 15.11.2026 18:30\n"
+        "• 2026-11-15 18:30\n"
+        "• завтра 10:00\n"
+        "• через 2 часа\n\n"
+        "Отмена — /cancel.",
     )
     await callback.answer()
 
@@ -1642,7 +1728,8 @@ async def callback_pubset(callback: CallbackQuery, bot: Bot) -> None:
 
 
 @router.callback_query(F.data.startswith("pubcancel:"))
-async def callback_pubcancel(callback: CallbackQuery) -> None:
+async def callback_pubcancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     if callback.message:
         try:
             await callback.message.delete()

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI-маркетолог{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v=light2">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">AI</span>
+      <span>AI-маркетолог <small>панель администратора</small></span>
+    </a>
+    <nav class="nav">
+      <a href="/">Панель</a>
+      <a href="/analytics">Аналитика</a>
+      <a href="/trends">Тренды</a>
+      <a href="/companies/new">Новая компания</a>
+      <a href="/logout">Выйти</a>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    Прототип для хакатона «Кибер 102» · данные сохраняются в SQLite
+  </footer>
+</body>
+</html>

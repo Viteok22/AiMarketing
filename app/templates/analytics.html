@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Аналитика · AI-маркетолог{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Обратная связь</div>
+    <h1>Аналитика публикаций</h1>
+    <p class="muted">
+      Просмотры и реакции на посты. AI делает вывод, что зашло и что улучшить
+      в следующих публикациях.
+    </p>
+  </div>
+  <div class="hero-actions">
+    <form method="get" action="/analytics">
+      <select name="company" onchange="this.form.submit()" aria-label="Компания">
+        <option value="all" {% if selected_company_id == 'all' %}selected{% endif %}>Все компании</option>
+        {% for company in companies %}
+          <option value="{{ company.id }}" {% if selected_company_id == company.id %}selected{% endif %}>{{ company.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <form method="post" action="/analytics/refresh">
+      <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+      <button class="btn" type="submit">Обновить просмотры</button>
+    </form>
+    {% if selected_company_id != 'all' %}
+    <form method="post" action="/analytics/insight">
+      <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+      <button class="btn btn-primary" type="submit">AI-вывод</button>
+    </form>
+    {% endif %}
+    <a class="btn" href="/trends">Анализ трендов →</a>
+  </div>
+</section>
+
+{% if request.query_params.get('ok') %}
+<div class="alert alert-ok">{{ request.query_params.get('ok') }}</div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-error">{{ request.query_params.get('error') }}</div>
+{% endif %}
+
+<section class="stats">
+  <div class="stat card">
+    <span class="stat-label">Публикации</span>
+    <strong>{{ reports|length }}</strong>
+    <span class="muted">с сохранённой статистикой</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Просмотры</span>
+    <strong>{{ total_views }}</strong>
+    <span class="muted">по публикациям</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Всего реакций</span>
+    <strong>{{ total_reactions }}</strong>
+    <span class="muted">по всем постам</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Позитивные</span>
+    <strong>{{ total_positive }}</strong>
+    <span class="muted">👍 ❤️ 🔥 🎉</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Негативные</span>
+    <strong>{{ total_negative }}</strong>
+    <span class="muted">👎 😢 😡</span>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Посты и реакции</h2>
+    <span class="muted small">обновляется из t.me/s и событий Telegram</span>
+  </div>
+  {% if reports %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Пост</th>
+          <th>Компания</th>
+          <th>Просмотры</th>
+          <th>Реакции</th>
+          <th>Итог</th>
+          <th>Опубликовано</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for report in reports %}
+        <tr>
+          <td>
+            {% if report.link %}
+              <a href="{{ report.link }}" target="_blank"><strong>{{ report.request|truncate(70) }}</strong></a>
+            {% else %}
+              <strong>{{ report.request|truncate(70) }}</strong>
+            {% endif %}
+            <div class="muted small">{{ report.post_text[:110] }}</div>
+          </td>
+          <td>{{ report.company_name }}</td>
+          <td>{{ report.views }}</td>
+          <td>
+            {% if report.reactions.counts %}
+              {% for emoji, count in report.reactions.counts.items() %}
+                <span class="pill">{{ emoji }} {{ count }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="status status-published">+{{ report.reactions.positive }}</span>
+            <span class="status status-rejected">−{{ report.reactions.negative }}</span>
+          </td>
+          <td class="muted">
+            {% if report.published_at_dt %}{{ report.published_at_dt.strftime('%d.%m %H:%M') }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Пока нет опубликованных постов. Поставьте задачу боту и одобрите публикацию.</p>
+  {% endif %}
+</section>
+
+{% if unlinked_posts %}
+<section class="card">
+  <div class="card-head">
+    <h2>Посты канала вне бота</h2>
+    <span class="muted small">реакции подтягиваются из t.me/s</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Пост</th>
+          <th>Компания</th>
+          <th>Просмотры</th>
+          <th>Реакции</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for post in unlinked_posts %}
+        <tr>
+          <td>
+            {% if post.url %}
+              <a href="{{ post.url }}" target="_blank"><strong>{{ post.text|truncate(70) }}</strong></a>
+            {% else %}
+              <strong>{{ post.text|truncate(70) }}</strong>
+            {% endif %}
+          </td>
+          <td>{{ post.company_name }}</td>
+          <td>{{ post.views }}</td>
+          <td>
+            {% for emoji, count in post.reactions.items() %}
+              <span class="pill">{{ emoji }} {{ count }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if insight %}
+<section class="card">
+  <div class="card-head">
+    <h2>AI-вывод по публикациям</h2>
+    {% if insight.created_at_dt %}
+      <span class="muted small">{{ insight.created_at_dt.strftime('%d.%m.%Y %H:%M') }}</span>
+    {% endif %}
+  </div>
+  <div class="trend-summary">{{ insight.summary }}</div>
+</section>
+{% elif selected_company_id != 'all' and reports %}
+<div class="alert alert-warning">
+  AI-вывод ещё не сформирован. Нажмите «AI-вывод», чтобы получить рекомендации по следующим постам.
+</div>
+{% endif %}
+{% endblock %}

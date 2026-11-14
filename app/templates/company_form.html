@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · AI-маркетолог{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Настройка без кода</div>
+    <h1>{{ title }}</h1>
+    <p class="muted">Заполните профиль компании. Эти данные AI использует при подготовке публикаций.</p>
+  </div>
+  <a class="btn" href="/">← Назад</a>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<form class="card stack" method="post" action="{{ '/companies/' + company.id if company else '/companies' }}">
+  <div class="grid-2">
+    <label>Название компании *
+      <input type="text" name="name" required value="{{ company.name if company else '' }}">
+    </label>
+    <label>Telegram-канал
+      <input type="text" name="channel_id" placeholder="@test_channel или -100..." value="{{ company.channel_id if company else '' }}">
+    </label>
+  </div>
+
+  <label>Краткое описание
+    <textarea name="description" rows="3" placeholder="Чем занимается компания, масштаб, география">{{ company.description if company else '' }}</textarea>
+  </label>
+
+  <div class="grid-2">
+    <label>Продукция и услуги
+      <textarea name="products" rows="4">{{ company.products if company else '' }}</textarea>
+    </label>
+    <label>Целевая аудитория
+      <textarea name="audience" rows="4">{{ company.audience if company else '' }}</textarea>
+    </label>
+  </div>
+
+  <label>Преимущества и доказательства
+    <textarea name="advantages" rows="4">{{ company.advantages if company else '' }}</textarea>
+  </label>
+
+  <div class="grid-2">
+    <label>Тон и стиль
+      <textarea name="tone" rows="3">{{ company.tone if company else '' }}</textarea>
+    </label>
+    <label>Запреты и ограничения
+      <textarea name="forbidden" rows="3">{{ company.forbidden if company else '' }}</textarea>
+    </label>
+  </div>
+
+  <label>База знаний
+    <textarea name="knowledge" rows="8" placeholder="Факты, цифры, продукты, кейсы, ссылки на источники">{{ company.knowledge if company else '' }}</textarea>
+  </label>
+
+  {% if not company %}
+  <div class="grid-2">
+    <label>Загрузить файл (TXT, MD, PDF)
+      <input type="file" name="file" accept=".txt,.md,.pdf">
+    </label>
+    <label>Или добавить текст с сайта
+      <input type="url" name="site_url" placeholder="https://example.ru">
+    </label>
+  </div>
+  {% endif %}
+
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+    <a class="btn" href="/">Отмена</a>
+  </div>
+</form>
+{% endblock %}

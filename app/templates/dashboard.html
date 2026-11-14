@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Панель · AI-маркетолог{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Автономный AI-маркетолог</div>
+    <h1>Компании, знания и согласования</h1>
+    <p class="muted">
+      Администратор создаёт компанию, загружает материалы и подключает Telegram-канал.
+      Клиент ставит задачи в Telegram, AI готовит 2 варианта текста и 2 изображения, публикация — только после одобрения.
+    </p>
+  </div>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="/companies/new">+ Новая компания</a>
+    <form method="post" action="/demo/reset" onsubmit="return confirm('Сбросить задачи и историю? Компании вернутся к стартовым.');">
+      <button class="btn" type="submit">Сбросить демо</button>
+    </form>
+  </div>
+</section>
+
+{% if request.query_params.get('ok') %}
+<div class="alert alert-ok">{{ request.query_params.get('ok') }}</div>
+{% endif %}
+
+{% if problems %}
+<div class="alert alert-warning">
+  <strong>Проверьте настройки:</strong>
+  <ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<section class="stats">
+  <div class="stat card">
+    <span class="stat-label">Компании</span>
+    <strong>{{ companies|length }}</strong>
+    <span class="muted">в демо-контуре</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Задачи</span>
+    <strong>{{ tasks|length }}</strong>
+    <span class="muted">в базе SQLite</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">На согласовании</span>
+    <strong>{{ tasks|selectattr('status', 'equalto', 'pending_approval')|list|length }}</strong>
+    <span class="muted">ждут решения</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">AI-генератор</span>
+    <strong class="status-text">
+      {% if generator_started and image_configured %}готово
+      {% elif generator_started %}текст готов, фото нет
+      {% else %}не настроен{% endif %}
+    </strong>
+    <span class="muted"><a href="/chatgpt/check" target="_blank">Проверить API</a></span>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="card">
+    <div class="card-head">
+      <h2>Компании</h2>
+      <a class="link" href="/companies/new">Добавить</a>
+    </div>
+    {% if companies %}
+      <div class="company-list">
+        {% for company in companies %}
+          <a class="company-item" href="/companies/{{ company.id }}">
+            <div>
+              <strong>{{ company.name }}</strong>
+              <div class="muted">{{ company.description|truncate(120) }}</div>
+            </div>
+            <span class="pill">{{ company.channel_id or channel or 'канал не задан' }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">Пока нет компаний. Создайте первую — без программирования.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Как это работает</h2>
+      <span class="pill">9 шагов ТЗ</span>
+    </div>
+    <ol class="steps">
+      <li>Админ создаёт компанию и загружает знания.</li>
+      <li>Клиент пишет задачу в Telegram обычным языком.</li>
+      <li>AI готовит 2 варианта текста и 2 изображения: DeepSeek + GPT Image 2.5.</li>
+      <li>Черновики уходят на согласование с площадкой и временем.</li>
+      <li>Выбор варианта и публикация — только после «Одобрить выбранное».</li>
+      <li>После публикации AI учитывает реакции и отвечает на вопросы по истории.</li>
+    </ol>
+    <p class="muted small">
+      SQLite сохраняет компании, задачи, варианты, историю и реакции после перезапуска.
+      Планировщик и вторая компания — следующий шаг.
+    </p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Последние задачи</h2>
+    <span class="muted small">обновляется из SQLite</span>
+  </div>
+  {% if tasks %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Задача</th>
+          <th>Компания</th>
+          <th>Статус</th>
+          <th>Обновлено</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td>
+            <strong>{{ task.request|truncate(80) }}</strong>
+            <div class="muted small">{{ task.id }}</div>
+          </td>
+          <td>{{ companies|selectattr('id', 'equalto', task.company_id)|map(attribute='name')|first|default('—') }}</td>
+          <td><span class="status {{ status_css.get(task.status, '') }}">{{ status_labels.get(task.status, task.status) }}</span></td>
+          <td class="muted">{{ task.updated_at.strftime('%d.%m %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Задач пока нет. Напишите боту в Telegram — задача появится здесь.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ company.name }} · AI-маркетолог{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Профиль компании</div>
+    <h1>{{ company.name }}</h1>
+    <p class="muted">{{ company.description }}</p>
+  </div>
+  <div class="hero-actions">
+    <span class="pill">{{ company.channel_id or channel or 'канал не задан' }}</span>
+    <a class="btn btn-primary" href="/companies/{{ company.id }}/calendar">🗓 Контент-календарь</a>
+    <a class="btn" href="/">← Назад</a>
+  </div>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+
+<section class="grid-2">
+  <form class="card stack" method="post" action="/companies/{{ company.id }}">
+    <div class="card-head"><h2>Профиль</h2></div>
+    <label>Название
+      <input type="text" name="name" required value="{{ company.name }}">
+    </label>
+    <label>Telegram-канал
+      <input type="text" name="channel_id" value="{{ company.channel_id }}" placeholder="@test_channel или -100...">
+    </label>
+    <label>Описание
+      <textarea name="description" rows="3">{{ company.description }}</textarea>
+    </label>
+    <label>Продукция и услуги
+      <textarea name="products" rows="3">{{ company.products }}</textarea>
+    </label>
+    <label>Целевая аудитория
+      <textarea name="audience" rows="3">{{ company.audience }}</textarea>
+    </label>
+    <label>Преимущества
+      <textarea name="advantages" rows="3">{{ company.advantages }}</textarea>
+    </label>
+    <label>Тон и стиль
+      <textarea name="tone" rows="2">{{ company.tone }}</textarea>
+    </label>
+    <label>Запреты
+      <textarea name="forbidden" rows="2">{{ company.forbidden }}</textarea>
+    </label>
+    <label>База знаний
+      <textarea name="knowledge" rows="8">{{ company.knowledge }}</textarea>
+    </label>
+    <button class="btn btn-primary" type="submit">Сохранить профиль</button>
+  </form>
+
+  <div class="stack">
+    <form class="card stack" method="post" action="/companies/{{ company.id }}/upload" enctype="multipart/form-data">
+      <div class="card-head"><h2>Добавить знания</h2></div>
+      <p class="muted small">Файл TXT/MD/PDF или текст с сайта. Материалы добавляются к базе знаний.</p>
+      <label>Файл
+        <input type="file" name="file" accept=".txt,.md,.pdf">
+      </label>
+      <label>Ссылка на сайт
+        <input type="url" name="site_url" placeholder="https://example.ru">
+      </label>
+      <button class="btn" type="submit">Загрузить материалы</button>
+    </form>
+
+    <form class="card stack" method="post" action="/companies/{{ company.id }}/bind">
+      <div class="card-head"><h2>Привязать Telegram</h2></div>
+      <p class="muted small">
+        ID пользователя Telegram, который будет работать с этой компанией.
+        Пользователь получит доступ только к ней; переключение компаний в боте отключено.
+      </p>
+      <label>Telegram user ID
+        <input type="number" name="user_id" placeholder="123456789">
+      </label>
+      <button class="btn" type="submit">Привязать</button>
+    </form>
+
+    <form class="card stack" method="post" action="/companies/{{ company.id }}/schedule">
+      <div class="card-head">
+        <h2>Автопостинг</h2>
+        <span class="pill">по расписанию</span>
+      </div>
+      <p class="muted small">
+        AI сам создаст черновик по расписанию и пришлёт варианты на согласование.
+        Публикация по-прежнему только после одобрения.
+      </p>
+      <label class="checkbox-row">
+        <input type="checkbox" name="enabled" {% if schedule and schedule.enabled %}checked{% endif %}>
+        Включить автогенерацию
+      </label>
+      <label>Интервал, минут
+        <input type="number" name="interval_minutes" min="1" value="{{ schedule.interval_minutes if schedule else 180 }}">
+      </label>
+      <label>Тема или промпт
+        <textarea name="prompt" rows="3" placeholder="Пусто — AI выберет тему по трендам и реакциям">{{ schedule.prompt if schedule else '' }}</textarea>
+      </label>
+      <label>Telegram user ID получателя
+        <input type="number" name="user_id" value="{{ schedule.user_id if schedule and schedule.user_id else default_schedule_user_id }}">
+      </label>
+      {% if schedule and schedule.next_run_at_dt %}
+        <p class="muted small">Следующий запуск: {{ schedule.next_run_at_dt.strftime('%d.%m.%Y %H:%M') }}</p>
+      {% endif %}
+      {% if schedule and schedule.last_run_at_dt %}
+        <p class="muted small">Последний запуск: {{ schedule.last_run_at_dt.strftime('%d.%m.%Y %H:%M') }}</p>
+      {% endif %}
+      <button class="btn btn-primary" type="submit">Сохранить расписание</button>
+    </form>
+
+    <form class="card stack" method="post" action="/companies/{{ company.id }}/schedule/run">
+      <div class="card-head"><h2>Запустить сейчас</h2></div>
+      <p class="muted small">Создаст черновик вне расписания и пришлёт варианты в Telegram.</p>
+      <button class="btn" type="submit">Сгенерировать черновик</button>
+    </form>
+
+    <div class="card">
+      <div class="card-head"><h2>Задачи компании</h2></div>
+      {% if tasks %}
+        <div class="task-list">
+          {% for task in tasks %}
+            <div class="task-item">
+              <div>
+                <strong>{{ task.request|truncate(90) }}</strong>
+                <div class="muted small">{{ task.id }} · {{ task.updated_at.strftime('%d.%m %H:%M') }}</div>
+              </div>
+              <span class="status {{ status_css.get(task.status, '') }}">{{ status_labels.get(task.status, task.status) }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">Задач пока нет.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

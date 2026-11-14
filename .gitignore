@@ -1,0 +1,13 @@
+.venv/
+.env
+data/chrome-profile/
+data/images/
+data/app.db
+data/app.db-wal
+data/app.db-shm
+data/screens/
+data/*.txt
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store

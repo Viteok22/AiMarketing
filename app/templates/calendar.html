@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Календарь · {{ company.name }} · AI-маркетолог{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Контент-план</div>
+    <h1>Календарь: {{ company.name }}</h1>
+    <p class="muted">
+      Неделя {{ week_start.strftime('%d.%m') }}–{{ week_end.strftime('%d.%m.%Y') }}.
+      В указанное время AI сам подготовит черновик и пришлёт его на согласование.
+    </p>
+  </div>
+  <div class="hero-actions">
+    <a class="btn" href="/companies/{{ company.id }}/calendar?week={{ week_param_prev }}">← Неделя</a>
+    <a class="btn" href="/companies/{{ company.id }}/calendar?week={{ week_param_next }}">Неделя →</a>
+    <a class="btn" href="/companies/{{ company.id }}">← Компания</a>
+  </div>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+
+<section class="card">
+  <form class="stack" method="post" action="/companies/{{ company.id }}/calendar">
+    <div class="card-head">
+      <h2>Добавить тему</h2>
+      <span class="pill">автогенерация</span>
+    </div>
+    <div class="calendar-form-row">
+      <label>Дата и время
+        <input type="datetime-local" name="planned_at" required>
+      </label>
+      <label>Получатель
+        <select name="user_id">
+          {% for uid in recipients %}
+            <option value="{{ uid }}" {% if uid == default_user %}selected{% endif %}>{{ uid }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Тема или задача
+      <textarea name="topic" rows="2" required placeholder="Например: пост про энергоэффективное остекление для застройщиков"></textarea>
+    </label>
+    <button class="btn btn-primary" type="submit">Добавить в календарь</button>
+  </form>
+</section>
+
+<section class="calendar-grid">
+  {% for day in days %}
+  <div class="calendar-day {% if day.is_today %}is-today{% endif %}">
+    <div class="calendar-day-head">
+      <strong>{{ day.label }}</strong>
+      <span>{{ day.date.strftime('%d.%m') }}</span>
+    </div>
+    {% for entry in day.entries %}
+    <div class="calendar-entry">
+      <div class="calendar-entry-top">
+        <span class="status {{ entry.status_css }}">{{ entry.status_label }}</span>
+        <span class="muted small">{{ entry.planned_at_dt.strftime('%H:%M') }}</span>
+      </div>
+      <div class="calendar-entry-topic">{{ entry.topic }}</div>
+      {% if entry.error %}
+        <div class="muted small">{{ entry.error|truncate(90) }}</div>
+      {% endif %}
+      <div class="calendar-entry-actions">
+        {% if entry.status in ('planned', 'failed') %}
+        <form method="post" action="/companies/{{ company.id }}/calendar/{{ entry.id }}/run">
+          <button class="btn btn-small" type="submit">Сгенерировать</button>
+        </form>
+        {% endif %}
+        {% if entry.status not in ('published', 'cancelled') %}
+        <form method="post" action="/companies/{{ company.id }}/calendar/{{ entry.id }}/cancel">
+          <button class="btn btn-small" type="submit">Отменить</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="muted small">Нет записей</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
